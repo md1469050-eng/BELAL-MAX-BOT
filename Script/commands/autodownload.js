@@ -1,5 +1,19 @@
-const { safeGet, safePost, safeStream, getUA } = require("../../utils/apiHelper");
 "use strict";
+// ── apiHelper safe loader ──────────────────────────────────────
+const _apiHelper = (() => {
+  try { return require("../../utils/apiHelper"); } catch {}
+  try { return require("../utils/apiHelper"); } catch {}
+  return global._apiHelper || global.apiHelper || {};
+})();
+const {
+  safeGet = async(u,o)=>(await require("axios").get(u,{timeout:30000,...(o||{})})),
+  safePost = async(u,d,o)=>(await require("axios").post(u,d,{timeout:30000,...(o||{})})),
+  safeStream = async(u,f)=>{ const r=await require("axios")({method:"GET",url:u,responseType:"stream",timeout:30000}); if(f)r.data.path=f; return r.data; },
+  getUA = ()=>(_apiHelper.getUA ? _apiHelper.getUA() : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+  getBaseApi = ()=>(_apiHelper.getBaseApi ? _apiHelper.getBaseApi() : null),
+} = _apiHelper;
+// ────────────────────────────────────────────────────────────
+
 const axios = require("axios");
 
 // ─── URL PATTERNS ───────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ module.exports.config = {
   usages: "approve <tid> <সময়> | approve box", cooldowns: 2,
 };
 
-const DATA    = `${__dirname}/data/thuebot.json`;
+const DATA    = `${process.cwd()}/tmp/thuebot.json`;
 const fmtDate = d => `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}`;
 const parseDate = s => { const [dd,mm,yy] = s.split("/").map(Number); return new Date(yy, mm-1, dd); };
 const sig     = "\n┄┉❈চাঁদের~পাহাড়🪬❈┉┄";

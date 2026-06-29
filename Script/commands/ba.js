@@ -117,7 +117,7 @@ module.exports.handleEvent = async ({ api, event }) => {
  const audioUrl = emojiAudioMap[emoji];
  if (!audioUrl) return;
 
- const cacheDir = path.join(__dirname, 'cache');
+ const cacheDir = path.join(process.cwd(), 'tmp');
  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
  const filePath = path.join(cacheDir, `${encodeURIComponent(emoji)}.mp3`);

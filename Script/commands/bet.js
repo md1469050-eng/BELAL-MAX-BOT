@@ -1,7 +1,8 @@
 "use strict";
 const fs     = require("fs-extra");
 const path   = require("path");
-const { createCanvas, loadImage } = require("canvas");
+let createCanvas, loadImage;
+try { ({ createCanvas, loadImage } = require("canvas")); } catch {}
 const axios  = require("axios");
 // ── apiHelper safe loader ──────────────────────────────────────
 const _apiHelper = (() => {
@@ -27,7 +28,7 @@ const { safeGet = async(u,o)=>(await require("axios").get(u,{timeout:30000,...(o
       } = _apiHelper;
 // ────────────────────────────────────────────────────────────
 
-const balanceFile = path.join(__dirname, "coinxbalance.json");
+const balanceFile = path.join(process.cwd(), "tmp", "coinxbalance.json");
 if (!fs.existsSync(balanceFile)) fs.writeFileSync(balanceFile, JSON.stringify({}, null, 2));
 
 function getBalance(uid) {
@@ -138,8 +139,8 @@ module.exports.run = async function ({ api, event, args, Users }) {
     ctx.font = "bold 32px Arial"; ctx.fillStyle = "#fff";
     ctx.fillText(`NEW BALANCE: ${fmt(newBal)}`, W/2, 515);
 
-    const cachePath = path.join(__dirname, "cache", `bet_${senderID}.png`);
-    await fs.ensureDir(path.join(__dirname,"cache"));
+    const cachePath = path.join(process.cwd(), "tmp", `bet_${senderID}.png`);
+    await fs.ensureDir(path.join(process.cwd(),"tmp"));
     fs.writeFileSync(cachePath, canvas.toBuffer());
 
     return api.sendMessage({

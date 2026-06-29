@@ -1,5 +1,6 @@
 const axios = require("axios");
-const { createCanvas, loadImage } = require("canvas");
+let createCanvas, loadImage;
+try { ({ createCanvas, loadImage } = require("canvas")); } catch {}
 const fs = require("fs");
 const path = require("path");
 

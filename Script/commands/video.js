@@ -4,28 +4,16 @@ const _apiHelper = (() => {
   try { return require("../utils/apiHelper"); } catch {}
   return global._apiHelper || global.apiHelper || {};
 })();
-const { safeGet = async(u,o)=>(await require("axios").get(u,{timeout:30000,...(o||{})})),
-        safePost = async(u,d,o)=>(await require("axios").post(u,d,{timeout:30000,...(o||{})})),
-        safeStream = async(u,f)=>{ const r=await require("axios")({method:"GET",url:u,responseType:"stream",timeout:30000}); if(f)r.data.path=f; return r.data; },
-        downloadToTmp = async(url,filename)=>{
-          const fs=require("fs-extra"),path=require("path"),axios=require("axios");
-          const dir=path.join(process.cwd(),"tmp"); await fs.ensureDir(dir);
-          const out=path.join(dir,filename||("dl_"+Date.now()+".mp4"));
-          const r=await axios({method:"GET",url,responseType:"stream",timeout:35000,headers:{"User-Agent":getUA()},maxRedirects:8});
-          await new Promise((res,rej)=>{const w=require("fs").createWriteStream(out);r.data.pipe(w);w.on("finish",res);w.on("error",rej);});
-          return out;
-        },
-        cleanTmp = (f,ms=10000)=>setTimeout(()=>require("fs-extra").remove(f).catch(()=>{}),ms),
-        getUA = ()=>(_apiHelper.getUA ? _apiHelper.getUA() : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
-        getBaseApi = ()=>(_apiHelper.getBaseApi ? _apiHelper.getBaseApi() : null),
-        jitter = (b=0)=>new Promise(r=>setTimeout(r,b+Math.random()*800))
-      } = _apiHelper;
+const {
+  getUA = () => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  getBaseApi = () => null,
+} = _apiHelper;
 // ────────────────────────────────────────────────────────────
 /*
- * video.js — v5.0 ULTRA FAST
- * ✅ disk নেই — সরাসরি stream attachment
- * ✅ getApi() cached
+ * video.js — v6.0 FIXED
+ * ✅ Cobalt API নতুন format (url field)
  * ✅ search + thumbnail Promise.all
+ * ✅ disk নেই — সরাসরি stream attachment
  */
 const axios = require("axios");
 
@@ -33,8 +21,6 @@ const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 };
 
-// getApi — apiHelper cached version
-// getApi — apiHelper cached + fallback safe (কখনো null/undefined রিটার্ন করবে না)
 const _FALLBACK_APIS = [
   "https://kaiz-apis.gleeze.com/api",
   "https://www.noobs-api.rf.gd/dipto",
@@ -50,16 +36,42 @@ async function getApi() {
     }
   } catch {}
   if (_cachedSafeApi) return _cachedSafeApi;
-  return _FALLBACK_APIS[0]; // সবসময় একটা valid URL — কখনো null না
+  return _FALLBACK_APIS[0];
 }
 
-// disk নেই — সরাসরি stream return
+// ✅ FIX: Cobalt নতুন API format (2024+)
+async function getCobaltUrl(videoId, fmt) {
+  const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const instances = [
+    "https://api.cobalt.tools",
+    "https://cobalt.api.timelessnesses.me",
+  ];
+  return Promise.any(instances.map(base =>
+    axios.post(base, {
+      url: youtubeUrl,               // ✅ "url" (নতুন format)
+      videoQuality: "720",
+      audioFormat: "mp3",
+      downloadMode: fmt === "mp3" ? "audio" : "auto",
+      filenameStyle: "basic"
+    }, {
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      timeout: 15000
+    }).then(r => {
+      const url = r.data?.url || r.data?.audio;
+      if (!url) throw new Error("no url");
+      return url;
+    })
+  ));
+}
+
 async function fastStream(url, filename) {
-  const streams = [url, url, url].map(u =>
-    axios({ method: "GET", url: u, responseType: "stream", headers: HEADERS, timeout: 60000, maxRedirects: 5 })
+  return Promise.any([url, url, url].map(u =>
+    axios({ method: "GET", url: u, responseType: "stream", headers: HEADERS, timeout: 60000, maxRedirects: 10 })
       .then(r => { r.data.path = filename; return r.data; })
-  );
-  return Promise.any(streams);
+  ));
 }
 
 async function streamImg(url, name) {
@@ -68,10 +80,36 @@ async function streamImg(url, name) {
   return r.data;
 }
 
+// ✅ FIX: download URL বের করা — Cobalt + fallback API race
+async function getDownloadUrl(videoId, fmt) {
+  const base = await getApi();
+
+  const cobaltPromise = getCobaltUrl(videoId, fmt)
+    .catch(() => null);
+
+  const oldApiPromise = axios.get(
+    `${base}/ytDl3?link=${videoId}&format=${fmt}&quality=3`, { timeout: 40000 }
+  ).then(r => {
+    if (!r.data?.downloadLink) throw new Error("no link");
+    return { url: r.data.downloadLink, title: r.data.title, quality: r.data.quality };
+  }).catch(() => null);
+
+  // যেটা আগে আসে এবং null নয় সেটা নাও
+  const results = await Promise.allSettled([cobaltPromise, oldApiPromise]);
+  for (const res of results) {
+    if (res.status === "fulfilled" && res.value) {
+      const val = res.value;
+      if (typeof val === "string") return { url: val, title: null, quality: "720p" };
+      return val;
+    }
+  }
+  throw new Error("সব API ব্যর্থ হয়েছে");
+}
+
 module.exports = {
   config: {
     name: "video",
-    version: "5.0.0",
+    version: "6.0.0",
     author: "Belal YT",
     countDown: 10,
     role: 0,
@@ -94,21 +132,16 @@ module.exports = {
     const ytReg = /^(?:https?:\/\/)?(?:m\.|www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))(([\w-]){11})(?:\S+)?$/;
     const isUrl = args[1] ? ytReg.test(args[1]) : false;
 
-    // ── Direct URL ──
     if (isUrl) {
       const fmt = ["-v","video","mp4"].includes(action) ? "mp4" : "mp3";
       const vid = args[1].match(ytReg)?.[1];
       if (!vid) return api.sendMessage("❌ YouTube লিংক সঠিক নয়।", threadID, messageID);
       try {
         api.setMessageReaction("⏳", messageID, () => {}, true);
-        const base = await getApi();
-        const { data: { title, downloadLink, quality } } = await axios.get(
-          `${base}/ytDl3?link=${vid}&format=${fmt}&quality=3`, { timeout: 40000 }
-        );
-        // disk নেই — সরাসরি stream
-        const stream = await fastStream(downloadLink, `video.${fmt}`);
+        const result = await getDownloadUrl(vid, fmt);
+        const stream = await fastStream(result.url, `video.${fmt}`);
         await api.sendMessage(
-          { body: `${fmt==="mp4"?"🎬":"🎵"} ${title}\n📊 ${quality}`, attachment: stream },
+          { body: `${fmt==="mp4"?"🎬":"🎵"} ${result.title || "YouTube ভিডিও"}\n📊 ${result.quality || ""}`, attachment: stream },
           threadID, () => {}, messageID
         );
         api.setMessageReaction("✅", messageID, () => {}, true);
@@ -119,7 +152,6 @@ module.exports = {
       return;
     }
 
-    // ── Search ──
     args.shift();
     const keyword = args.join(" ").trim();
     if (!keyword) return api.sendMessage(
@@ -138,11 +170,11 @@ module.exports = {
       let msg = `🔎 "${keyword}"\n${"─".repeat(22)}\n\n`;
       const thumbPromises = results.map((r, i) => {
         msg += `${i+1}. ${r.title}\n⏱️ ${r.time} | ${r.channel?.name||"?"}\n\n`;
-        return streamImg(r.thumbnail, `t${i+1}.jpg`);
+        return streamImg(r.thumbnail, `t${i+1}.jpg`).catch(() => null);
       });
       msg += "👉 নম্বর দিয়ে reply করুন (১-৬)";
 
-      const imgs = await Promise.all(thumbPromises);
+      const imgs = (await Promise.all(thumbPromises)).filter(Boolean);
       api.setMessageReaction("✅", messageID, () => {}, true);
       api.sendMessage({ body: msg, attachment: imgs }, threadID, (err, info) => {
         if (err || !info) return;
@@ -176,11 +208,10 @@ module.exports = {
         api.setMessageReaction("⏳", messageID, () => {}, true);
         const base = await getApi();
         const { data: d } = await axios.get(`${base}/ytfullinfo?videoID=${vid.id}`, { timeout: 15000 });
-        const thumb = await streamImg(d.thumbnail, "info.jpg");
-        api.sendMessage({
-          body: `✨ ${d.title}\n⏳ ${(d.duration/60).toFixed(1)} min\n👀 ${d.view_count} views\n👍 ${d.like_count} likes\n📢 ${d.channel}\n🔗 ${d.webpage_url}`,
-          attachment: thumb,
-        }, threadID, messageID);
+        const thumb = await streamImg(d.thumbnail, "info.jpg").catch(() => null);
+        const msg = { body: `✨ ${d.title}\n⏳ ${(d.duration/60).toFixed(1)} min\n👀 ${d.view_count} views\n👍 ${d.like_count} likes\n📢 ${d.channel}\n🔗 ${d.webpage_url}` };
+        if (thumb) msg.attachment = thumb;
+        api.sendMessage(msg, threadID, messageID);
         api.setMessageReaction("✅", messageID, () => {}, true);
       } catch (e) {
         api.sendMessage(`❌ ব্যর্থ: ${e.message?.slice(0,100)}`, threadID, messageID);
@@ -191,18 +222,10 @@ module.exports = {
     const fmt = ["-v","video","mp4"].includes(action) ? "mp4" : "mp3";
     try {
       api.setMessageReaction("⏳", messageID, () => {}, true);
-      const base = await getApi();
-
-      // search API + stream একসাথে শুরু
-      const { data: { title, downloadLink, quality } } = await axios.get(
-        `${base}/ytDl3?link=${vid.id}&format=${fmt}&quality=3`, { timeout: 40000 }
-      );
-
-      // disk নেই — সরাসরি stream
-      const stream = await fastStream(downloadLink, `video.${fmt}`);
-
+      const result2 = await getDownloadUrl(vid.id, fmt);
+      const stream = await fastStream(result2.url, `video.${fmt}`);
       await api.sendMessage(
-        { body: `${fmt==="mp4"?"🎬":"🎵"} ${title}\n📊 ${quality}`, attachment: stream },
+        { body: `${fmt==="mp4"?"🎬":"🎵"} ${result2.title || vid.title}\n📊 ${result2.quality || ""}`, attachment: stream },
         threadID, () => {}, messageID
       );
       api.setMessageReaction("✅", messageID, () => {}, true);
@@ -213,6 +236,4 @@ module.exports = {
   },
 };
 
-// startup — getApi cache গরম
 setTimeout(() => getApi().catch(() => {}), 2000);
-      

@@ -4,30 +4,16 @@ const _apiHelper = (() => {
   try { return require("../utils/apiHelper"); } catch {}
   return global._apiHelper || global.apiHelper || {};
 })();
-const { safeGet = async(u,o)=>(await require("axios").get(u,{timeout:30000,...(o||{})})),
-        safePost = async(u,d,o)=>(await require("axios").post(u,d,{timeout:30000,...(o||{})})),
-        safeStream = async(u,f)=>{ const r=await require("axios")({method:"GET",url:u,responseType:"stream",timeout:30000}); if(f)r.data.path=f; return r.data; },
-        downloadToTmp = async(url,filename)=>{
-          const fs=require("fs-extra"),path=require("path"),axios=require("axios");
-          const dir=path.join(process.cwd(),"tmp"); await fs.ensureDir(dir);
-          const out=path.join(dir,filename||("dl_"+Date.now()+".mp4"));
-          const r=await axios({method:"GET",url,responseType:"stream",timeout:35000,headers:{"User-Agent":getUA()},maxRedirects:8});
-          await new Promise((res,rej)=>{const w=require("fs").createWriteStream(out);r.data.pipe(w);w.on("finish",res);w.on("error",rej);});
-          return out;
-        },
-        cleanTmp = (f,ms=10000)=>setTimeout(()=>require("fs-extra").remove(f).catch(()=>{}),ms),
-        getUA = ()=>(_apiHelper.getUA ? _apiHelper.getUA() : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
-        getBaseApi = ()=>(_apiHelper.getBaseApi ? _apiHelper.getBaseApi() : null),
-        jitter = (b=0)=>new Promise(r=>setTimeout(r,b+Math.random()*800))
-      } = _apiHelper;
+const {
+  getUA = () => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  getBaseApi = () => null,
+} = _apiHelper;
 // ────────────────────────────────────────────────────────────
 /*
- * song.js — v6.0
- * ✅ লিস্ট দেখায়, নম্বর দিয়ে select
- * ✅ Cobalt + পুরানো API race — যেটা আগে সেটা জেতে
- * ✅ disk নেই — সরাসরি stream (arraybuffer নেই)
- * ✅ getApi() cached
- * ✅ mp3 অডিও হিসেবে মেসেঞ্জারে আসবে
+ * song.js — v7.0 FIXED
+ * ✅ Cobalt API নতুন format
+ * ✅ fallback API race
+ * ✅ disk নেই — সরাসরি stream
  */
 const axios = require("axios");
 
@@ -35,13 +21,6 @@ const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 };
 
-const COBALT_HEADERS = {
-  "Accept": "application/json",
-  "Content-Type": "application/json"
-};
-
-// getApi — apiHelper থেকে cached version (GitHub rate limit safe)
-// getApi — apiHelper cached + fallback safe (কখনো null/undefined রিটার্ন করবে না)
 const _FALLBACK_APIS = [
   "https://kaiz-apis.gleeze.com/api",
   "https://www.noobs-api.rf.gd/dipto",
@@ -57,16 +36,15 @@ async function getApi() {
     }
   } catch {}
   if (_cachedSafeApi) return _cachedSafeApi;
-  return _FALLBACK_APIS[0]; // সবসময় একটা valid URL — কখনো null না
+  return _FALLBACK_APIS[0];
 }
 
-// Cobalt — ৩টা instance একসাথে race, mp3
+// ✅ FIX: Cobalt নতুন format
 async function getCobaltUrl(videoId) {
   const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
   const instances = [
     "https://api.cobalt.tools",
     "https://cobalt.api.timelessnesses.me",
-    "https://co.wuk.sh"
   ];
   return Promise.any(instances.map(base =>
     axios.post(base, {
@@ -74,8 +52,10 @@ async function getCobaltUrl(videoId) {
       audioFormat: "mp3",
       downloadMode: "audio",
       filenameStyle: "basic"
-    }, { headers: COBALT_HEADERS, timeout: 15000 })
-    .then(r => {
+    }, {
+      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      timeout: 15000
+    }).then(r => {
       const url = r.data?.url || r.data?.audio;
       if (!url) throw new Error("no url");
       return url;
@@ -83,14 +63,10 @@ async function getCobaltUrl(videoId) {
   ));
 }
 
-// disk নেই, সরাসরি mp3 stream — path: song.mp3 দিলে মেসেঞ্জার অডিও হিসেবে চেনে
 async function fastAudioStream(url) {
   return Promise.any([url, url, url].map(u =>
     axios({ method: "GET", url: u, responseType: "stream", headers: HEADERS, timeout: 60000, maxRedirects: 10 })
-      .then(r => {
-        r.data.path = "song.mp3"; // .mp3 extension — মেসেঞ্জার অডিও হিসেবে দেখাবে
-        return r.data;
-      })
+      .then(r => { r.data.path = "song.mp3"; return r.data; })
   ));
 }
 
@@ -100,27 +76,30 @@ async function streamImg(url, name) {
   return r.data;
 }
 
-// Cobalt + পুরানো API race করে download URL আনো
 async function getDownloadUrl(videoId) {
   const base = await getApi();
 
-  const cobalt = getCobaltUrl(videoId);
+  const cobalt = getCobaltUrl(videoId).catch(() => null);
 
   const oldApi = axios.get(
     `${base}/ytDl3?link=${videoId}&format=mp3&quality=3`, { timeout: 40000 }
   ).then(r => {
     if (!r.data?.downloadLink) throw new Error("no link");
     return r.data.downloadLink;
-  });
+  }).catch(() => null);
 
-  return Promise.any([cobalt, oldApi]);
+  const results = await Promise.allSettled([cobalt, oldApi]);
+  for (const res of results) {
+    if (res.status === "fulfilled" && res.value) return res.value;
+  }
+  throw new Error("সব API ব্যর্থ হয়েছে");
 }
 
 module.exports = {
   config: {
     name: "song",
     aliases: ["music", "play", "mp3", "audio", "গান"],
-    version: "6.0.0",
+    version: "7.0.0",
     author: "Belal YT",
     countDown: 10,
     role: 0,
@@ -151,15 +130,14 @@ module.exports = {
         `⭕ "${keyword}" এর কোনো গান পাওয়া যায়নি।`, threadID, messageID
       );
 
-      // লিস্ট তৈরি + thumbnail একসাথে load
       let msg = `🎵 "${keyword}"\n${"─".repeat(22)}\n\n`;
       const thumbPromises = results.map((r, i) => {
         msg += `${i+1}. ${r.title}\n⏱️ ${r.time} | ${r.channel?.name||"?"}\n\n`;
-        return streamImg(r.thumbnail, `st${i+1}.jpg`);
+        return streamImg(r.thumbnail, `st${i+1}.jpg`).catch(() => null);
       });
       msg += "👉 নম্বর দিয়ে reply করুন (১-৬)";
 
-      const imgs = await Promise.all(thumbPromises);
+      const imgs = (await Promise.all(thumbPromises)).filter(Boolean);
       api.setMessageReaction("✅", messageID, () => {}, true);
 
       api.sendMessage({ body: msg, attachment: imgs }, threadID, (err, info) => {
@@ -192,19 +170,13 @@ module.exports = {
     api.setMessageReaction("⏳", messageID, () => {}, true);
 
     try {
-      // Cobalt + পুরানো API race — যেটা আগে দেয় সেটা নাও
       const downloadUrl = await getDownloadUrl(vid.id);
-
-      // সরাসরি mp3 stream — disk নেই
       const stream = await fastAudioStream(downloadUrl);
 
-      await api.sendMessage(
-        {
-          body: `🎵 ${vid.title}\n⏱️ ${vid.time} | ${vid.channel?.name||""}\n\n🎶 ┄┉ উপভোগ করুন ┉┄ 🎶`,
-          attachment: stream
-        },
-        threadID, () => {}, messageID
-      );
+      await api.sendMessage({
+        body: `🎵 ${vid.title}\n⏱️ ${vid.time} | ${vid.channel?.name || ""}\n\n🎶 ┄┉ উপভোগ করুন ┉┄ 🎶`,
+        attachment: stream
+      }, threadID, () => {}, messageID);
       api.setMessageReaction("✅", messageID, () => {}, true);
 
     } catch (e) {
@@ -215,6 +187,4 @@ module.exports = {
   },
 };
 
-// startup cache warm
 setTimeout(() => getApi().catch(() => {}), 2000);
-                      

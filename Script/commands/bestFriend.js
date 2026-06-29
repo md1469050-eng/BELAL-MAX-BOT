@@ -42,8 +42,8 @@ module.exports.run = async function ({ event, api }) {
     const res = await axios.post(`${BASE}/api`, { cmd:"bestFriend", senderID, targetID },
       { responseType:"arraybuffer", timeout:30000 });
 
-    const imgPath = path.join(__dirname,"cache",`bf_${senderID}_${targetID}.png`);
-    await fs.ensureDir(path.join(__dirname,"cache"));
+    const imgPath = path.join(process.cwd(),"tmp",`bf_${senderID}_${targetID}.png`);
+    await fs.ensureDir(path.join(process.cwd(),"tmp"));
     fs.writeFileSync(imgPath, res.data);
 
     return api.sendMessage({

@@ -41,7 +41,7 @@ module.exports.config = {
 };
 
 module.exports.onLoad = async function () {
-  const dir  = path.join(__dirname, "cache", "canvas");
+  const dir  = path.join(process.cwd(), "tmp", "canvas");
   const file = path.join(dir, "arr2.png");
   await fs.ensureDir(dir);
   if (!fs.existsSync(file)) {
@@ -54,7 +54,7 @@ module.exports.onLoad = async function () {
 
 async function makeImage(one, two) {
   const jimp    = require("jimp");
-  const dir     = path.join(__dirname, "cache", "canvas");
+  const dir     = path.join(process.cwd(), "tmp", "canvas");
   const bgPath  = path.join(dir, "arr2.png");
   const outPath = path.join(dir, `bf_${one}_${two}.png`);
   const avt1    = path.join(dir, `avt1_${one}.png`);

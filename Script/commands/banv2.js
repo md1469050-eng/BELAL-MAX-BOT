@@ -10,9 +10,9 @@ module.exports.config = {
   cooldowns: 5,
 };
 
-const DATA = `${__dirname}/cache/bans.json`;
+const DATA = `${process.cwd()}/tmp/banv2_cache/bans.json`;
 function loadData() {
-  if (!fs.existsSync(DATA)) { fs.ensureDirSync(`${__dirname}/cache`); fs.writeFileSync(DATA, JSON.stringify({ warns:{}, banned:{} }, null, 2)); }
+  if (!fs.existsSync(DATA)) { fs.ensureDirSync(`${process.cwd()}/tmp/banv2_cache`); fs.writeFileSync(DATA, JSON.stringify({ warns:{}, banned:{} }, null, 2)); }
   return JSON.parse(fs.readFileSync(DATA, "utf8"));
 }
 function saveData(d) { fs.writeFileSync(DATA, JSON.stringify(d, null, 2)); }

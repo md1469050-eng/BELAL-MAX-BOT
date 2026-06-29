@@ -1,7 +1,8 @@
 "use strict";
 const fs     = require("fs-extra");
 const axios  = require("axios");
-const Canvas = require("canvas");
+let Canvas;
+try { Canvas = require("canvas"); } catch {}
 // ── apiHelper safe loader ──────────────────────────────────────
 const _apiHelper = (() => {
   try { return require("../../utils/apiHelper"); } catch {}
@@ -62,8 +63,8 @@ module.exports.run = async function ({ api, event, args, Currencies }) {
   const pool   = luck > WIN_RATE ? FACES.filter(f => f !== choice) : [...FACES];
   const result = [0,1,2].map(() => pool[Math.floor(Math.random() * pool.length)]);
   const count  = result.filter(f => f === choice).length;
-  const cachePath = `${__dirname}/cache/bc_${senderID}.png`;
-  await fs.ensureDir(`${__dirname}/cache`);
+  const cachePath = `${process.cwd()}/tmp/bc_${senderID}.png`;
+  await fs.ensureDir(`${process.cwd()}/tmp`);
 
   try {
     const [bgBuf, ...diceBufs] = await Promise.all([

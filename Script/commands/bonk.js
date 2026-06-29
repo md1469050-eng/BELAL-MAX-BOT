@@ -1,6 +1,7 @@
 "use strict";
 const axios = require("axios");
-const { createCanvas, loadImage } = require("canvas");
+let createCanvas, loadImage;
+try { ({ createCanvas, loadImage } = require("canvas")); } catch {}
 const fs   = require("fs-extra");
 const path = require("path");
 // ── apiHelper safe loader ──────────────────────────────────────
@@ -59,8 +60,8 @@ async function makeImage(one, two) {
   ctx.drawImage(c1, 60, 150);
   ctx.drawImage(c2, 500, 220);
 
-  const outPath = path.join(__dirname,"cache",`bonk_${one}_${two}.png`);
-  await fs.ensureDir(path.join(__dirname,"cache"));
+  const outPath = path.join(process.cwd(),"tmp",`bonk_${one}_${two}.png`);
+  await fs.ensureDir(path.join(process.cwd(),"tmp"));
   fs.writeFileSync(outPath, canvas.toBuffer("image/png"));
   return outPath;
 }
